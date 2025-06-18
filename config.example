@@ -1,0 +1,26 @@
+# TSquat Configuration Example
+# Copy this file to ~/.tsquat_config and fill in your actual credentials
+
+[OpenSRS]
+# Your OpenSRS API credentials
+# Get these from your OpenSRS Reseller Control Panel -> Account Settings -> API Settings
+api_key = your_opensrs_api_key_here
+username = your_opensrs_username_here
+
+# OpenSRS API endpoints (don't change these unless you know what you're doing)
+test_host = https://horizon.opensrs.net:55443
+live_host = https://rr-n1-tor.opensrs.net:55443
+
+# Set to 'true' for test environment, 'false' for production
+# IMPORTANT: Always start with test environment!
+use_test = true
+
+# Setup Instructions:
+# 1. Sign up for an OpenSRS reseller account
+# 2. Go to Reseller Control Panel -> Account Settings
+# 3. Click on API Settings tab
+# 4. Copy your API key and username
+# 5. For production: Add your IP address to the IP Access Rules
+# 6. Copy this file to ~/.tsquat_config
+# 7. Replace the placeholder values with your real credentials
+# 8. Run: python tsquat.py --config to verify setup
