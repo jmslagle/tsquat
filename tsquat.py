@@ -26,15 +26,17 @@ class TSquat:
         self.logger = setup_logging(debug=debug)
     
     def configure_credentials(self, force_reconfigure=False):
-        """Interactive configuration of OpenSRS credentials"""
+        """Interactive configuration of OpenSRS credentials and registration defaults"""
         opensrs_config = self.config.get_opensrs_config()
+        registration_config = self.config.get_registration_config()
         
         # Show current configuration if it exists
         if not force_reconfigure and opensrs_config['api_key'] and opensrs_config['username']:
-            print(f"{Fore.CYAN}Current OpenSRS Configuration:")
-            print(f"  Username: {opensrs_config['username']}")
+            print(f"{Fore.CYAN}Current Configuration:")
+            print(f"  OpenSRS Username: {opensrs_config['username']}")
             print(f"  API Key: {'*' * (len(opensrs_config['api_key']) - 4) + opensrs_config['api_key'][-4:] if opensrs_config['api_key'] else 'Not set'}")
             print(f"  Environment: {'Test' if opensrs_config['use_test'] else 'Production'}")
+            print(f"  Registration defaults: {'Configured' if registration_config['email'] else 'Not set'}")
             print()
             
             if not force_reconfigure:
@@ -43,11 +45,11 @@ class TSquat:
                     print(f"{Fore.GREEN}Configuration unchanged.")
                     return True
         
-        print(f"{Fore.CYAN}Enter OpenSRS Configuration:")
+        print(f"{Fore.CYAN}=== OpenSRS API Configuration ===")
         
         # Get new credentials
         current_username = opensrs_config.get('username', '')
-        username = input(f"Username [{current_username}]: ").strip()
+        username = input(f"OpenSRS Username [{current_username}]: ").strip()
         if not username and current_username:
             username = current_username
         
@@ -70,8 +72,65 @@ class TSquat:
             print(f"{Fore.RED}Username and API key are required.")
             return False
         
-        # Save new configuration
+        # Save OpenSRS configuration
         self.config.set_opensrs_credentials(api_key, username, use_test)
+        
+        # Configure registration defaults
+        print(f"\n{Fore.CYAN}=== Registration Defaults Configuration ===")
+        print(f"{Fore.YELLOW}Configure default contact information for domain registration:")
+        
+        contact_info = self.get_contact_info_interactive(registration_config)
+        
+        # Configure registration credentials
+        print(f"\n{Fore.CYAN}=== Domain Registration Credentials ===")
+        print(f"{Fore.YELLOW}OpenSRS requires separate username/password for domain registration:")
+        print(f"{Fore.YELLOW}Username: 3-20 characters (alphanumeric)")
+        print(f"{Fore.YELLOW}Password: 10-20 characters (alphanumeric + symbols)")
+        
+        current_reg_username = registration_config.get('reg_username', '')
+        reg_username = input(f"Registration username [{current_reg_username}]: ").strip()
+        if not reg_username and current_reg_username:
+            reg_username = current_reg_username
+        
+        # Validate username
+        if reg_username and (len(reg_username) < 3 or len(reg_username) > 20 or not reg_username.isalnum()):
+            print(f"{Fore.YELLOW}Warning: Username should be 3-20 alphanumeric characters")
+        
+        import getpass
+        reg_password = getpass.getpass("Registration password: ").strip()
+        if not reg_password:
+            current_reg_password = registration_config.get('reg_password', '')
+            if current_reg_password:
+                keep_current = input(f"Keep current registration password? (y/n): ").strip().lower()
+                if keep_current == 'y':
+                    reg_password = current_reg_password
+        
+        # Validate password
+        if reg_password and (len(reg_password) < 10 or len(reg_password) > 20):
+            print(f"{Fore.YELLOW}Warning: Password should be 10-20 characters")
+        
+        # Add registration credentials to contact info
+        contact_info['reg_username'] = reg_username
+        contact_info['reg_password'] = reg_password
+        
+        # Configure DNS settings
+        print(f"\n{Fore.CYAN}=== DNS Configuration ===")
+        auto_dns_current = 'y' if registration_config.get('auto_dns', True) else 'n'
+        auto_dns = input(f"Automatically set up DNS at OpenSRS? (y/n) [{auto_dns_current}]: ").strip().lower()
+        if not auto_dns:
+            auto_dns = auto_dns_current
+        auto_dns_bool = auto_dns == 'y'
+        
+        default_ip = ''
+        if auto_dns_bool:
+            current_ip = registration_config.get('default_ip', '')
+            default_ip = input(f"Default IP address for A records [{current_ip}]: ").strip()
+            if not default_ip and current_ip:
+                default_ip = current_ip
+        
+        # Save registration configuration
+        self.config.set_registration_defaults(contact_info, auto_dns_bool, default_ip)
+        
         print(f"{Fore.GREEN}Configuration saved successfully.")
         return True
     
@@ -171,29 +230,107 @@ class TSquat:
         contact_info = self.get_contact_info()
         
         print(f"\n{Fore.CYAN}Registering selected domains...")
+        print(f"{Fore.YELLOW}Note: Check tsquat.log for detailed registration debugging information")
+        
+        registration_config = self.config.get_registration_config()
+        
         for domain_info in domains_to_register:
             domain = domain_info['domain']
+            print(f"\n{Fore.CYAN}Attempting to register: {domain}")
+            
             result = self.opensrs_client.register_domain(domain, contact_info)
             
             if result['status'] in ['success', 'test_success']:
                 print(f"{Fore.GREEN}✓ {domain} - {result['message']}")
+                
+                # Set up DNS if configured
+                if registration_config.get('auto_dns') and registration_config.get('default_ip'):
+                    print(f"{Fore.CYAN}  Setting up DNS for {domain}...")
+                    dns_result = self.opensrs_client.setup_dns_zone(domain, registration_config['default_ip'])
+                    
+                    if dns_result['status'] in ['success', 'test_success']:
+                        print(f"{Fore.GREEN}  ✓ DNS configured - {dns_result['message']}")
+                    else:
+                        print(f"{Fore.YELLOW}  ⚠ DNS setup failed - {dns_result['message']}")
+                        print(f"{Fore.YELLOW}    You can manually configure DNS later")
+                elif registration_config.get('auto_dns'):
+                    print(f"{Fore.YELLOW}  ⚠ DNS setup skipped - no default IP configured")
+                    print(f"{Fore.YELLOW}    Run --config to set a default IP address")
+                
             else:
                 print(f"{Fore.RED}✗ {domain} - {result['message']}")
+                if 'response' in result:
+                    print(f"{Fore.YELLOW}  Full API response logged to tsquat.log")
+                
+                # Show common error explanations
+                if 'response_code' in result.get('message', ''):
+                    print(f"{Fore.YELLOW}  Check the log file for the complete error response and response code")
+                elif 'Missing required' in result.get('message', ''):
+                    print(f"{Fore.YELLOW}  Contact information validation failed - check required fields")
+                elif 'Registration failed' in result.get('message', ''):
+                    print(f"{Fore.YELLOW}  Domain registration was rejected by the registry")
+                else:
+                    print(f"{Fore.YELLOW}  Unknown registration error - check logs for details")
+    
+    def get_contact_info_interactive(self, current_config=None):
+        """Get contact info with defaults from current configuration"""
+        if current_config is None:
+            current_config = {}
+        
+        return {
+            'first_name': input(f"First name [{current_config.get('first_name', '')}]: ").strip() or current_config.get('first_name', ''),
+            'last_name': input(f"Last name [{current_config.get('last_name', '')}]: ").strip() or current_config.get('last_name', ''),
+            'org_name': input(f"Organization [{current_config.get('org_name', '')}]: ").strip() or current_config.get('org_name', ''),
+            'address1': input(f"Address [{current_config.get('address1', '')}]: ").strip() or current_config.get('address1', ''),
+            'city': input(f"City [{current_config.get('city', '')}]: ").strip() or current_config.get('city', ''),
+            'state': input(f"State/Province [{current_config.get('state', '')}]: ").strip() or current_config.get('state', ''),
+            'country': input(f"Country [{current_config.get('country', '')}]: ").strip() or current_config.get('country', ''),
+            'postal_code': input(f"Postal code [{current_config.get('postal_code', '')}]: ").strip() or current_config.get('postal_code', ''),
+            'phone': input(f"Phone [{current_config.get('phone', '')}]: ").strip() or current_config.get('phone', ''),
+            'email': input(f"Email [{current_config.get('email', '')}]: ").strip() or current_config.get('email', '')
+        }
     
     def get_contact_info(self):
+        """Get contact info using configured defaults or prompt for new info"""
+        registration_config = self.config.get_registration_config()
+        
+        # Check if we have complete registration defaults including credentials
+        required_fields = ['first_name', 'last_name', 'address1', 'city', 'state', 'country', 'postal_code', 'phone', 'email', 'reg_username', 'reg_password']
+        if all(registration_config.get(field) for field in required_fields):
+            print(f"\n{Fore.CYAN}Using configured registration defaults:")
+            print(f"  Name: {registration_config['first_name']} {registration_config['last_name']}")
+            print(f"  Email: {registration_config['email']}")
+            print(f"  Address: {registration_config['address1']}, {registration_config['city']}, {registration_config['state']}")
+            print(f"  Registration Username: {registration_config['reg_username']}")
+            
+            use_defaults = input(f"\n{Fore.YELLOW}Use these defaults? (y/n): ").strip().lower()
+            if use_defaults == 'y':
+                return registration_config
+        
         print(f"\n{Fore.CYAN}Enter contact information for domain registration:")
-        return {
-            'first_name': input("First name: ").strip(),
-            'last_name': input("Last name: ").strip(),
-            'org_name': input("Organization (optional): ").strip(),
-            'address1': input("Address: ").strip(),
-            'city': input("City: ").strip(),
-            'state': input("State/Province: ").strip(),
-            'country': input("Country: ").strip(),
-            'postal_code': input("Postal code: ").strip(),
-            'phone': input("Phone: ").strip(),
-            'email': input("Email: ").strip()
-        }
+        contact_info = self.get_contact_info_interactive(registration_config)
+        
+        # Get registration credentials if not already configured
+        if not registration_config.get('reg_username') or not registration_config.get('reg_password'):
+            print(f"\n{Fore.CYAN}Registration credentials required:")
+            
+            if not registration_config.get('reg_username'):
+                reg_username = input("Registration username (3-20 alphanumeric): ").strip()
+                contact_info['reg_username'] = reg_username
+            else:
+                contact_info['reg_username'] = registration_config['reg_username']
+            
+            if not registration_config.get('reg_password'):
+                import getpass
+                reg_password = getpass.getpass("Registration password (10-20 chars): ").strip()
+                contact_info['reg_password'] = reg_password
+            else:
+                contact_info['reg_password'] = registration_config['reg_password']
+        else:
+            contact_info['reg_username'] = registration_config['reg_username']
+            contact_info['reg_password'] = registration_config['reg_password']
+        
+        return contact_info
     
     def clone_website(self, target_domain, output_dir, lookalike_domain=None):
         print(f"{Fore.CYAN}Cloning website: {target_domain}")
@@ -222,7 +359,7 @@ Examples:
   python tsquat.py example.com --register --clone --max-variants 50
 
 Configuration:
-  python tsquat.py --config          # Configure OpenSRS credentials
+  python tsquat.py --config          # Configure OpenSRS credentials, registration defaults, and DNS
   python tsquat.py --show-config     # Show current configuration
   python tsquat.py --clear-config    # Clear all configuration
         """

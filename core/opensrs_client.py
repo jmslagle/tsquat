@@ -137,27 +137,48 @@ class OpenSRSClient:
         return results
     
     def register_domain(self, domain, contact_info, years=1):
+        self.logger.info(f"Starting domain registration for: {domain}")
+        self.logger.info(f"Registration period: {years} year(s)")
+        self.logger.debug(f"Contact info: {contact_info}")
+        
         if self.use_test:
-            print(f"TEST MODE: Would register {domain} for {years} year(s)")
+            self.logger.info(f"TEST MODE: Would register {domain} for {years} year(s)")
             return {'domain': domain, 'status': 'test_success', 'message': 'Test registration successful'}
         
+        # Validate required contact information
+        required_fields = ['first_name', 'last_name', 'address1', 'city', 'state', 'country', 'postal_code', 'phone', 'email', 'reg_username', 'reg_password']
+        missing_fields = [field for field in required_fields if not contact_info.get(field)]
+        
+        if missing_fields:
+            error_msg = f"Missing required contact fields: {', '.join(missing_fields)}"
+            self.logger.error(error_msg)
+            return {'domain': domain, 'status': 'error', 'message': error_msg}
+        
+        # Escape XML special characters in contact info
+        def escape_xml(text):
+            if not text:
+                return ''
+            return str(text).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('"', '&quot;').replace("'", '&apos;')
+        
         contact_xml = f'''
-            <item key="first_name">{contact_info.get('first_name', '')}</item>
-            <item key="last_name">{contact_info.get('last_name', '')}</item>
-            <item key="org_name">{contact_info.get('org_name', '')}</item>
-            <item key="address1">{contact_info.get('address1', '')}</item>
-            <item key="city">{contact_info.get('city', '')}</item>
-            <item key="state">{contact_info.get('state', '')}</item>
-            <item key="country">{contact_info.get('country', '')}</item>
-            <item key="postal_code">{contact_info.get('postal_code', '')}</item>
-            <item key="phone">{contact_info.get('phone', '')}</item>
-            <item key="email">{contact_info.get('email', '')}</item>
+            <item key="first_name">{escape_xml(contact_info.get('first_name', ''))}</item>
+            <item key="last_name">{escape_xml(contact_info.get('last_name', ''))}</item>
+            <item key="org_name">{escape_xml(contact_info.get('org_name', ''))}</item>
+            <item key="address1">{escape_xml(contact_info.get('address1', ''))}</item>
+            <item key="city">{escape_xml(contact_info.get('city', ''))}</item>
+            <item key="state">{escape_xml(contact_info.get('state', ''))}</item>
+            <item key="country">{escape_xml(contact_info.get('country', ''))}</item>
+            <item key="postal_code">{escape_xml(contact_info.get('postal_code', ''))}</item>
+            <item key="phone">{escape_xml(contact_info.get('phone', ''))}</item>
+            <item key="email">{escape_xml(contact_info.get('email', ''))}</item>
         '''
         
         attributes = f'''
             <item key="domain">{domain}</item>
             <item key="auto_renew">0</item>
             <item key="period">{years}</item>
+            <item key="reg_username">{escape_xml(contact_info.get('reg_username', ''))}</item>
+            <item key="reg_password">{escape_xml(contact_info.get('reg_password', ''))}</item>
             <item key="contact_set">
                 <dt_assoc>
                     <item key="owner">
@@ -182,21 +203,126 @@ class OpenSRSClient:
                     </item>
                 </dt_assoc>
             </item>
+            <item key="nameserver_list">
+                <dt_array>
+                    <item key="0">
+                        <dt_assoc>
+                            <item key="name">ns1.opensrs.net</item>
+                            <item key="sortorder">1</item>
+                        </dt_assoc>
+                    </item>
+                    <item key="1">
+                        <dt_assoc>
+                            <item key="name">ns2.opensrs.net</item>
+                            <item key="sortorder">2</item>
+                        </dt_assoc>
+                    </item>
+                    <item key="2">
+                        <dt_assoc>
+                            <item key="name">ns3.opensrs.net</item>
+                            <item key="sortorder">3</item>
+                        </dt_assoc>
+                    </item>
+                </dt_array>
+            </item>
         '''
         
         xml_request = self._build_xml_request('sw_register', 'domain', attributes)
+        self.logger.debug(f"Registration XML request: {xml_request}")
         
         try:
+            self.logger.info(f"Sending registration request for {domain}...")
             response = self._make_request(xml_request)
             
+            self.logger.info(f"Full registration response for {domain}: {response}")
+            
             if '<item key="is_success">1</item>' in response:
+                self.logger.info(f"Registration successful for {domain}")
                 return {'domain': domain, 'status': 'success', 'message': 'Domain registered successfully'}
             else:
-                return {'domain': domain, 'status': 'failed', 'message': 'Registration failed'}
+                # Extract error information from response
+                error_msg = 'Registration failed'
+                if '<item key="response_text">' in response:
+                    import re
+                    match = re.search(r'<item key="response_text">([^<]+)</item>', response)
+                    if match:
+                        error_msg = f"Registration failed: {match.group(1)}"
+                
+                if '<item key="response_code">' in response:
+                    match = re.search(r'<item key="response_code">([^<]+)</item>', response)
+                    if match:
+                        error_msg += f" (Code: {match.group(1)})"
+                
+                self.logger.error(f"Registration failed for {domain}: {error_msg}")
+                self.logger.error(f"Full error response: {response}")
+                return {'domain': domain, 'status': 'failed', 'message': error_msg, 'response': response}
                 
         except Exception as e:
+            error_msg = f"Registration exception for {domain}: {str(e)}"
+            self.logger.error(error_msg)
             return {'domain': domain, 'status': 'error', 'message': str(e)}
     
+    def setup_dns_zone(self, domain, ip_address):
+        """Set up DNS zone with A records for domain and www subdomain"""
+        self.logger.info(f"Setting up DNS zone for {domain} with IP {ip_address}")
+        
+        if self.use_test:
+            self.logger.info(f"TEST MODE: Would set up DNS for {domain} -> {ip_address}")
+            return {'domain': domain, 'status': 'test_success', 'message': 'Test DNS setup successful'}
+        
+        # Create DNS zone first
+        zone_attributes = f'''
+            <item key="domain">{domain}</item>
+            <item key="master_ip">{ip_address}</item>
+            <item key="admin_email">hostmaster.{domain}</item>
+            <item key="records">
+                <dt_array>
+                    <item key="0">
+                        <dt_assoc>
+                            <item key="subdomain"></item>
+                            <item key="type">A</item>
+                            <item key="address">{ip_address}</item>
+                        </dt_assoc>
+                    </item>
+                    <item key="1">
+                        <dt_assoc>
+                            <item key="subdomain">www</item>
+                            <item key="type">A</item>
+                            <item key="address">{ip_address}</item>
+                        </dt_assoc>
+                    </item>
+                </dt_array>
+            </item>
+        '''
+        
+        xml_request = self._build_xml_request('create', 'dns_zone', zone_attributes)
+        
+        try:
+            self.logger.info(f"Creating DNS zone for {domain}...")
+            response = self._make_request(xml_request)
+            
+            self.logger.info(f"DNS zone creation response: {response}")
+            
+            if '<item key="is_success">1</item>' in response:
+                self.logger.info(f"DNS zone created successfully for {domain}")
+                return {'domain': domain, 'status': 'success', 'message': f'DNS zone created with A records: {domain} -> {ip_address}, www.{domain} -> {ip_address}'}
+            else:
+                # Extract error information
+                error_msg = 'DNS zone creation failed'
+                if '<item key="response_text">' in response:
+                    import re
+                    match = re.search(r'<item key="response_text">([^<]+)</item>', response)
+                    if match:
+                        error_msg = f"DNS creation failed: {match.group(1)}"
+                
+                self.logger.error(f"DNS zone creation failed for {domain}: {error_msg}")
+                return {'domain': domain, 'status': 'failed', 'message': error_msg, 'response': response}
+                
+        except Exception as e:
+            error_msg = f"DNS setup exception for {domain}: {str(e)}"
+            self.logger.error(error_msg)
+            return {'domain': domain, 'status': 'error', 'message': str(e)}
+
     def validate_credentials(self):
         self.logger.info("Validating OpenSRS credentials...")
         try:

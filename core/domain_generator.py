@@ -175,6 +175,94 @@ class DomainGenerator:
         
         return True
     
+    def hyphenation_variations(self, domain):
+        """Generate hyphenated variations for multi-word domains"""
+        name, tld = self.extract_domain_parts(domain)
+        variants = set()
+        
+        # Common word boundaries where hyphens might be added
+        # Look for transitions between different character types or common word patterns
+        word_boundaries = []
+        
+        # Find potential word boundaries
+        for i in range(1, len(name)):
+            # Transition from lowercase to uppercase (camelCase)
+            if name[i-1].islower() and name[i].isupper():
+                word_boundaries.append(i)
+            
+            # Common word patterns and transitions
+            # Between a letter and number
+            if name[i-1].isalpha() and name[i].isdigit():
+                word_boundaries.append(i)
+            if name[i-1].isdigit() and name[i].isalpha():
+                word_boundaries.append(i)
+        
+        # Common word prefixes/suffixes where hyphens are often added
+        common_prefixes = ['web', 'my', 'get', 'go', 'the', 'best', 'top', 'new', 'old', 'big', 'small']
+        common_suffixes = ['app', 'site', 'web', 'net', 'hub', 'zone', 'pro', 'plus', 'max', 'tech', 'soft']
+        
+        # Check for common prefixes
+        for prefix in common_prefixes:
+            if name.lower().startswith(prefix) and len(name) > len(prefix):
+                boundary = len(prefix)
+                if boundary not in word_boundaries:
+                    word_boundaries.append(boundary)
+        
+        # Check for common suffixes
+        for suffix in common_suffixes:
+            if name.lower().endswith(suffix) and len(name) > len(suffix):
+                boundary = len(name) - len(suffix)
+                if boundary not in word_boundaries:
+                    word_boundaries.append(boundary)
+        
+        # Look for repeated letters (might indicate word boundary)
+        for i in range(1, len(name)):
+            if name[i-1] == name[i]:
+                # Don't split in the middle of double letters
+                continue
+            
+            # Look for vowel-consonant or consonant-vowel transitions
+            vowels = 'aeiou'
+            if (name[i-1].lower() in vowels and name[i].lower() not in vowels) or \
+               (name[i-1].lower() not in vowels and name[i].lower() in vowels):
+                # Only add if it seems like a reasonable word boundary
+                if i > 2 and i < len(name) - 2:  # Not too close to edges
+                    word_boundaries.append(i)
+        
+        # Generate hyphenated variants
+        for boundary in set(word_boundaries):
+            if 1 <= boundary < len(name):  # Valid boundary position
+                hyphenated = name[:boundary] + '-' + name[boundary:]
+                variant = f"{hyphenated}{tld}"
+                variants.add(variant)
+        
+        # Also try some common multi-word patterns
+        # For domains that might be compound words, try splitting at logical points
+        common_word_splits = [
+            # Split after common 2-3 letter words
+            ('my', 'site'), ('go', 'web'), ('get', 'app'), ('new', 'tech'),
+            ('top', 'web'), ('best', 'app'), ('web', 'site'), ('app', 'store'),
+            # Split before common endings
+            ('net', 'work'), ('soft', 'ware'), ('fire', 'wall'), ('pass', 'word'),
+            ('data', 'base'), ('face', 'book'), ('you', 'tube'), ('linked', 'in')
+        ]
+        
+        name_lower = name.lower()
+        for word1, word2 in common_word_splits:
+            # If the domain contains these words consecutively, add hyphen
+            pattern = word1 + word2
+            if pattern in name_lower:
+                idx = name_lower.find(pattern)
+                if idx >= 0:
+                    hyphenated = name[:idx + len(word1)] + '-' + name[idx + len(word1):]
+                    variant = f"{hyphenated}{tld}"
+                    variants.add(variant)
+        
+        # Remove original domain if it was added
+        variants.discard(domain)
+        
+        return list(variants)
+    
     def generate_all_variants(self, domain, max_variants=500):
         all_variants = set()
         
@@ -184,7 +272,8 @@ class DomainGenerator:
             self.character_transposition,
             self.homophone_replacement,
             self.tld_variations,
-            self.subdomain_insertion
+            self.subdomain_insertion,
+            self.hyphenation_variations
         ]
         
         for method in methods:

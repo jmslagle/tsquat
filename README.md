@@ -156,6 +156,12 @@ The tool implements several sophisticated typosquatting techniques:
    - TLD variations (.com→.net, .org)
    - Subdomain insertion (www.target.com, mail.target.com)
 
+5. **Hyphenation Variations:**
+   - Multi-word domain separation (facebook→face-book)
+   - CamelCase splitting (myWebSite→my-WebSite)
+   - Common prefix/suffix separation (webapp→web-app)
+   - Number transitions (web2go→web-2go)
+
 ## Website Cloning Features
 
 ### Asset Download

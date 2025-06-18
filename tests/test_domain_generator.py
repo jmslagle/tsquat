@@ -183,6 +183,37 @@ class TestDomainGenerator:
         for variant in variants:
             name, tld = self.generator.extract_domain_parts(variant)
             assert tld in self.generator.valid_tlds, f"Invalid TLD in domain: {variant}"
+    
+    def test_hyphenation_variations(self):
+        """Test hyphenation variations for multi-word domains"""
+        # Test camelCase domain
+        variants = self.generator.hyphenation_variations("myWebSite.com")
+        assert "my-WebSite.com" in variants or "myWeb-Site.com" in variants
+        
+        # Test common prefix
+        variants = self.generator.hyphenation_variations("webstore.com")
+        assert "web-store.com" in variants
+        
+        # Test common suffix
+        variants = self.generator.hyphenation_variations("myapp.com")
+        assert "my-app.com" in variants
+        
+        # Test number transition
+        variants = self.generator.hyphenation_variations("web2site.com")
+        assert "web-2site.com" in variants or "web2-site.com" in variants
+        
+        # Test known compound words
+        variants = self.generator.hyphenation_variations("facebook.com")
+        assert "face-book.com" in variants
+        
+        # Test that original domain is not included
+        variants = self.generator.hyphenation_variations("example.com")
+        assert "example.com" not in variants
+        
+        # Test single word domain (should generate few or no variants)
+        variants = self.generator.hyphenation_variations("test.com")
+        # Single word domains might not generate hyphenation variants
+        assert isinstance(variants, list)
 
 
 if __name__ == "__main__":
