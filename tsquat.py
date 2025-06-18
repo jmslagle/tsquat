@@ -195,12 +195,17 @@ class TSquat:
             'email': input("Email: ").strip()
         }
     
-    def clone_website(self, target_domain, output_dir):
+    def clone_website(self, target_domain, output_dir, lookalike_domain=None):
         print(f"{Fore.CYAN}Cloning website: {target_domain}")
-        success = self.scraper.clone_website(target_domain, output_dir)
+        if lookalike_domain:
+            print(f"{Fore.CYAN}Will replace {target_domain} URLs with: {lookalike_domain}")
+        
+        success = self.scraper.clone_website(target_domain, output_dir, lookalike_domain)
         
         if success:
             print(f"{Fore.GREEN}Website cloned successfully to: {output_dir}")
+            if lookalike_domain:
+                print(f"{Fore.GREEN}Domain replacement completed: {target_domain} -> {lookalike_domain}")
         else:
             print(f"{Fore.RED}Failed to clone website")
 
@@ -213,6 +218,7 @@ Examples:
   python tsquat.py example.com
   python tsquat.py example.com --register
   python tsquat.py example.com --clone --output ./cloned_site
+  python tsquat.py example.com --clone --lookalike-domain examp1e.com
   python tsquat.py example.com --register --clone --max-variants 50
 
 Configuration:
@@ -226,6 +232,7 @@ Configuration:
     parser.add_argument('--register', action='store_true', help='Register available domains')
     parser.add_argument('--clone', action='store_true', help='Clone the target website')
     parser.add_argument('--output', default='./cloned_site', help='Output directory for cloned website')
+    parser.add_argument('--lookalike-domain', help='Lookalike domain to replace target domain URLs with (for cloning)')
     parser.add_argument('--max-variants', type=int, default=100, help='Maximum number of domain variants to generate')
     parser.add_argument('--config', action='store_true', help='Configure OpenSRS credentials')
     parser.add_argument('--show-config', action='store_true', help='Show current configuration')
@@ -283,7 +290,7 @@ Configuration:
         tsquat.register_domains(available_domains)
     
     if args.clone:
-        tsquat.clone_website(args.domain, args.output)
+        tsquat.clone_website(args.domain, args.output, args.lookalike_domain)
 
 if __name__ == "__main__":
     main()
