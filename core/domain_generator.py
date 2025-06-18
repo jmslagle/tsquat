@@ -176,85 +176,106 @@ class DomainGenerator:
         return True
     
     def hyphenation_variations(self, domain):
-        """Generate hyphenated variations for multi-word domains"""
+        """Generate hyphenated variations for multi-word domains - prioritize real word boundaries"""
         name, tld = self.extract_domain_parts(domain)
         variants = set()
         
-        # Common word boundaries where hyphens might be added
-        # Look for transitions between different character types or common word patterns
-        word_boundaries = []
-        
-        # Find potential word boundaries
-        for i in range(1, len(name)):
-            # Transition from lowercase to uppercase (camelCase)
-            if name[i-1].islower() and name[i].isupper():
-                word_boundaries.append(i)
+        # PRIMARY: Known compound words and real word boundaries
+        # These are the most believable and effective typosquatting domains
+        primary_word_splits = [
+            # Technology companies and common terms
+            ('face', 'book'), ('you', 'tube'), ('linked', 'in'), ('pay', 'pal'),
+            ('micro', 'soft'), ('apple', 'store'), ('google', 'drive'), ('drop', 'box'),
+            ('face', 'time'), ('word', 'press'), ('sales', 'force'), ('light', 'room'),
             
-            # Common word patterns and transitions
-            # Between a letter and number
-            if name[i-1].isalpha() and name[i].isdigit():
-                word_boundaries.append(i)
-            if name[i-1].isdigit() and name[i].isalpha():
-                word_boundaries.append(i)
-        
-        # Common word prefixes/suffixes where hyphens are often added
-        common_prefixes = ['web', 'my', 'get', 'go', 'the', 'best', 'top', 'new', 'old', 'big', 'small']
-        common_suffixes = ['app', 'site', 'web', 'net', 'hub', 'zone', 'pro', 'plus', 'max', 'tech', 'soft']
-        
-        # Check for common prefixes
-        for prefix in common_prefixes:
-            if name.lower().startswith(prefix) and len(name) > len(prefix):
-                boundary = len(prefix)
-                if boundary not in word_boundaries:
-                    word_boundaries.append(boundary)
-        
-        # Check for common suffixes
-        for suffix in common_suffixes:
-            if name.lower().endswith(suffix) and len(name) > len(suffix):
-                boundary = len(name) - len(suffix)
-                if boundary not in word_boundaries:
-                    word_boundaries.append(boundary)
-        
-        # Look for repeated letters (might indicate word boundary)
-        for i in range(1, len(name)):
-            if name[i-1] == name[i]:
-                # Don't split in the middle of double letters
-                continue
+            # Common website/app terms
+            ('web', 'site'), ('web', 'page'), ('home', 'page'), ('log', 'in'),
+            ('sign', 'up'), ('sign', 'in'), ('check', 'out'), ('pass', 'word'),
+            ('user', 'name'), ('email', 'address'), ('contact', 'us'), ('about', 'us'),
             
-            # Look for vowel-consonant or consonant-vowel transitions
-            vowels = 'aeiou'
-            if (name[i-1].lower() in vowels and name[i].lower() not in vowels) or \
-               (name[i-1].lower() not in vowels and name[i].lower() in vowels):
-                # Only add if it seems like a reasonable word boundary
-                if i > 2 and i < len(name) - 2:  # Not too close to edges
-                    word_boundaries.append(i)
-        
-        # Generate hyphenated variants
-        for boundary in set(word_boundaries):
-            if 1 <= boundary < len(name):  # Valid boundary position
-                hyphenated = name[:boundary] + '-' + name[boundary:]
-                variant = f"{hyphenated}{tld}"
-                variants.add(variant)
-        
-        # Also try some common multi-word patterns
-        # For domains that might be compound words, try splitting at logical points
-        common_word_splits = [
-            # Split after common 2-3 letter words
-            ('my', 'site'), ('go', 'web'), ('get', 'app'), ('new', 'tech'),
-            ('top', 'web'), ('best', 'app'), ('web', 'site'), ('app', 'store'),
-            # Split before common endings
-            ('net', 'work'), ('soft', 'ware'), ('fire', 'wall'), ('pass', 'word'),
-            ('data', 'base'), ('face', 'book'), ('you', 'tube'), ('linked', 'in')
+            # Business/service terms  
+            ('customer', 'service'), ('tech', 'support'), ('help', 'desk'), ('live', 'chat'),
+            ('online', 'store'), ('shopping', 'cart'), ('credit', 'card'), ('gift', 'card'),
+            ('news', 'letter'), ('press', 'release'), ('terms', 'service'), ('privacy', 'policy'),
+            
+            # Technology terms
+            ('data', 'base'), ('soft', 'ware'), ('hard', 'ware'), ('fire', 'wall'),
+            ('net', 'work'), ('inter', 'net'), ('web', 'cam'), ('lap', 'top'),
+            ('desk', 'top'), ('smart', 'phone'), ('tab', 'let'), ('note', 'book'),
+            
+            # Action words
+            ('down', 'load'), ('up', 'load'), ('back', 'up'), ('set', 'up'),
+            ('log', 'out'), ('shut', 'down'), ('start', 'up'), ('break', 'down'),
+            
+            # Common prefixes with words
+            ('my', 'account'), ('my', 'profile'), ('my', 'settings'), ('my', 'dashboard'),
+            ('get', 'started'), ('get', 'help'), ('go', 'back'), ('go', 'home'),
+            ('new', 'user'), ('new', 'account'), ('best', 'deals'), ('top', 'rated'),
+            
+            # Common suffixes
+            ('app', 'store'), ('web', 'app'), ('mobile', 'app'), ('desktop', 'app'),
+            ('game', 'center'), ('music', 'player'), ('video', 'player'), ('photo', 'gallery')
         ]
         
         name_lower = name.lower()
-        for word1, word2 in common_word_splits:
-            # If the domain contains these words consecutively, add hyphen
+        
+        # Check for primary word boundaries first (highest priority)
+        for word1, word2 in primary_word_splits:
             pattern = word1 + word2
             if pattern in name_lower:
                 idx = name_lower.find(pattern)
                 if idx >= 0:
+                    # Preserve original case
                     hyphenated = name[:idx + len(word1)] + '-' + name[idx + len(word1):]
+                    variant = f"{hyphenated}{tld}"
+                    variants.add(variant)
+        
+        # SECONDARY: Common prefixes and suffixes (good word boundaries)
+        common_prefixes = ['web', 'my', 'get', 'go', 'the', 'best', 'top', 'new', 'old', 'big', 'small', 'super', 'mega', 'ultra', 'auto', 'smart']
+        common_suffixes = ['app', 'site', 'web', 'net', 'hub', 'zone', 'pro', 'plus', 'max', 'tech', 'soft', 'ware', 'tool', 'box', 'center', 'world']
+        
+        # Check for common prefixes
+        for prefix in common_prefixes:
+            if name.lower().startswith(prefix) and len(name) > len(prefix):
+                # Only split if what follows could be a word (at least 2 chars)
+                if len(name) - len(prefix) >= 2:
+                    boundary = len(prefix)
+                    hyphenated = name[:boundary] + '-' + name[boundary:]
+                    variant = f"{hyphenated}{tld}"
+                    variants.add(variant)
+        
+        # Check for common suffixes
+        for suffix in common_suffixes:
+            if name.lower().endswith(suffix) and len(name) > len(suffix):
+                # Only split if what precedes could be a word (at least 2 chars)
+                if len(name) - len(suffix) >= 2:
+                    boundary = len(name) - len(suffix)
+                    hyphenated = name[:boundary] + '-' + name[boundary:]
+                    variant = f"{hyphenated}{tld}"
+                    variants.add(variant)
+        
+        # TERTIARY: CamelCase and other patterns (lower priority)
+        secondary_boundaries = []
+        
+        # CamelCase transitions
+        for i in range(1, len(name)):
+            if name[i-1].islower() and name[i].isupper():
+                # Only if both parts are reasonable length
+                if i >= 2 and len(name) - i >= 2:
+                    secondary_boundaries.append(i)
+        
+        # Number transitions (less common but valid)
+        for i in range(1, len(name)):
+            if name[i-1].isalpha() and name[i].isdigit():
+                secondary_boundaries.append(i)
+            elif name[i-1].isdigit() and name[i].isalpha():
+                secondary_boundaries.append(i)
+        
+        # Add secondary boundaries only if we don't have many primary ones
+        if len(variants) < 3:
+            for boundary in secondary_boundaries:
+                if 1 <= boundary < len(name):
+                    hyphenated = name[:boundary] + '-' + name[boundary:]
                     variant = f"{hyphenated}{tld}"
                     variants.add(variant)
         
@@ -267,21 +288,29 @@ class DomainGenerator:
         all_variants = set()
         
         methods = [
+            self.hyphenation_variations,  # Prioritize hyphenation - most believable typosquats
             self.character_substitution,
             self.character_deletion,
             self.character_transposition,
             self.homophone_replacement,
             self.tld_variations,
-            self.subdomain_insertion,
-            self.hyphenation_variations
+            self.subdomain_insertion
         ]
         
-        for method in methods:
+        for i, method in enumerate(methods):
             variants = method(domain)
             # Filter to only valid domains
             valid_variants = [v for v in variants if self.is_valid_domain(v)]
-            # Ensure each method contributes at least 1 variant if available
-            method_limit = max(1, max_variants // len(methods))
+            
+            # Special handling for hyphenation - give it higher allocation
+            if method == self.hyphenation_variations:
+                # Hyphenation gets all of its variants (they're high quality)
+                method_limit = len(valid_variants)
+            else:
+                # Other methods get fair share of remaining slots
+                remaining_methods = len(methods) - 1
+                method_limit = max(1, (max_variants - len(all_variants)) // remaining_methods) if remaining_methods > 0 else max_variants
+            
             all_variants.update(valid_variants[:method_limit])
         
         all_variants.discard(domain)
